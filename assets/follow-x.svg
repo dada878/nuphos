@@ -1,6 +1,1 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="150" height="44" viewBox="0 0 150 44" role="img" aria-label="Follow on X">
-  <rect width="150" height="44" rx="8" fill="#000"/>
-  <path fill="#fff" transform="translate(14,12) scale(0.85)" d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.744l7.725-8.835L1.254 2.25H8.08l4.253 5.622L18.244 2.25zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
-  <text x="42" y="18" fill="#fff" font-family="Helvetica, Arial, sans-serif" font-size="9">Follow on</text>
-  <text x="42" y="34" fill="#fff" font-family="Helvetica, Arial, sans-serif" font-size="17" font-weight="600">X</text>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="150" height="44" aria-label="Follow on X" role="img" viewBox="0 0 150 44"><rect width="150" height="44" fill="#000" rx="8"/><path fill="#fff" d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.744l7.725-8.835L1.254 2.25H8.08l4.253 5.622L18.244 2.25zm-1.161 17.52h1.833L7.084 4.126H5.117z" transform="translate(14,12) scale(0.85)"/><text x="42" y="18" fill="#fff" font-family="Helvetica, Arial, sans-serif" font-size="9">Follow on</text><text x="42" y="34" fill="#fff" font-family="Helvetica, Arial, sans-serif" font-size="17" font-weight="600">X</text></svg>
