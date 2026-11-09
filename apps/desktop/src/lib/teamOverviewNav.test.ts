@@ -14,18 +14,24 @@ import {
   renamedTeamPagePath,
   teamOverviewNavItemFor,
 } from './teamOverviewNav.ts'
+import { settingsSectionForPage } from '../views/settings/settingsNav.ts'
 
 const ALL_ITEMS = [...TEAM_SIDEBAR_NAV_ITEMS, ...TEAM_WORKSPACE_NAV_ITEMS]
 
-test('the sidebar lists New agent then the management pages', () => {
+test('the sidebar lists New agent, the management pages, then Triggers', () => {
   assert.deepEqual(
     TEAM_SIDEBAR_NAV_ITEMS.map((item) => item.key),
-    ['team.agent', 'team.inbox', 'team.agents', 'team.integrations'],
+    ['team.agent', 'team.inbox', 'team.agents', 'team.integrations', 'team.triggers'],
   )
   assert.deepEqual(
     TEAM_MANAGEMENT_NAV_ITEMS.map((item) => item.key),
-    TEAM_SIDEBAR_NAV_ITEMS.slice(1).map((item) => item.key),
+    TEAM_SIDEBAR_NAV_ITEMS.slice(1, -1).map((item) => item.key),
   )
+})
+
+test('the Triggers sidebar row opens its Team Settings section, not the main pane', () => {
+  assert.equal(isTeamManagementKey('team.triggers'), false)
+  assert.equal(settingsSectionForPage('team.triggers'), 'workspace.triggers')
 })
 
 test('workspace pages are the ones launched beside a conversation', () => {

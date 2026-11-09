@@ -46,11 +46,18 @@ export const TEAM_MANAGEMENT_NAV_ITEMS: TeamOverviewNavItem[] = [
   { key: 'team.integrations', label: t('Connectors'), icon: Cloud },
 ]
 
+/** Hosted in Team Settings, but also pinned to the sidebar so schedules are one click away. */
+const TRIGGERS_NAV_ITEM: TeamOverviewNavItem = {
+  key: 'team.triggers',
+  label: t('Triggers'),
+  icon: Clock,
+}
+
 /** Team pages hosted in Team Settings. Their keys still name them in links and ⌘K. */
 export const TEAM_SETTINGS_PAGE_NAV_ITEMS: TeamOverviewNavItem[] = [
   { key: 'team.agent-skills', label: t('Skills'), icon: Sparkles },
   { key: 'team.agent-memories', label: t('Memories'), icon: Brain },
-  { key: 'team.triggers', label: t('Triggers'), icon: Clock },
+  TRIGGERS_NAV_ITEM,
 ]
 
 /** Opened from the foot of the sidebar's Chats list, not from the nav rows. */
@@ -74,10 +81,14 @@ export const TEAM_WORKSPACE_NAV_ITEMS: TeamOverviewNavItem[] = [
   { key: 'team.monitoring', label: t('Monitoring'), icon: HeartPulse },
 ]
 
-/** The sidebar's untitled top section: the chat entry plus the management pages. */
+/**
+ * The sidebar's untitled top section: the chat entry, the management pages, and
+ * Triggers. A Triggers click opens its Settings section (see onSidebarOpenKey).
+ */
 export const TEAM_SIDEBAR_NAV_ITEMS: TeamOverviewNavItem[] = [
   NEW_CHAT_NAV_ITEM,
   ...TEAM_MANAGEMENT_NAV_ITEMS,
+  TRIGGERS_NAV_ITEM,
 ]
 
 /**
