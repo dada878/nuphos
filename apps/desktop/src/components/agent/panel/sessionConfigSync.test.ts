@@ -195,8 +195,9 @@ test('a choice shows at once as optimistic, and a failed write drops it', async 
   write.reject(new Error('rejected'))
   await selecting
   await flush()
+  // The readback after the failure shows the runtime's own value again.
   assert.equal(sync.getSnapshot().optimistic, undefined)
-  assert.match(sync.getSnapshot().error ?? '', /not confirmed/)
+  assert.equal(sync.getSnapshot().data?.options[0].currentValue, 'actual')
 })
 
 test('a choice made while another saves queues behind it instead of being dropped', async (t) => {
