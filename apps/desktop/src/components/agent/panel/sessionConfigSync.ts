@@ -8,6 +8,8 @@ type Transport = {
 }
 export type ConfigSnapshot = {
   queued?: SessionConfigSelection[]
+  /** The selection being written, shown before the runtime confirms it. */
+  optimistic?: SessionConfigSelection
   data?: SessionConfigState
   loading: boolean
   slow: boolean
@@ -16,7 +18,11 @@ export type ConfigSnapshot = {
 }
 const INITIAL: ConfigSnapshot = { loading: true, slow: false, saving: false }
 
-/** One request at a time, independent of menu/focus changes. Never invent model values. */
+/**
+ * One request at a time, independent of menu/focus changes. A selection shows
+ * at once as `optimistic` while it is written; a failed write drops it, so the
+ * runtime's own values come back. Selections made meanwhile queue behind it.
+ */
 export class SessionConfigSync {
   private snapshot: ConfigSnapshot = INITIAL
   private listeners = new Set<() => void>()
@@ -140,7 +146,10 @@ export class SessionConfigSync {
   }
 
   async select(selection: SessionConfigSelection) {
-    if (this.active && (this.streaming || this.snapshot.data?.status === 'busy')) {
+    if (
+      this.active &&
+      (this.streaming || this.snapshot.saving || this.snapshot.data?.status === 'busy')
+    ) {
       this.publish({
         queued: [
           ...(this.snapshot.queued ?? []).filter(
@@ -163,7 +172,7 @@ export class SessionConfigSync {
     clearTimeout(this.poll)
     clearTimeout(this.slowTimer)
     this.pending = false
-    this.publish({ saving: true, slow: false, error: undefined })
+    this.publish({ saving: true, optimistic: selection, slow: false, error: undefined })
     try {
       const data = await bounded(this.transport.write(selection), 40_000)
 
@@ -176,7 +185,7 @@ export class SessionConfigSync {
         })
     } finally {
       if (this.active && version === this.version) {
-        this.publish({ saving: false })
+        this.publish({ saving: false, optimistic: undefined })
         // Read back what the runtime holds, e.g. after a failed or lost acknowledgement.
         void this.refresh()
       }

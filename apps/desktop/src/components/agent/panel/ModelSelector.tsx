@@ -1,6 +1,6 @@
 import { Popover } from '@base-ui/react/popover'
 import clsx from 'clsx'
-import { ChevronDown, Loader2 } from 'lucide-react'
+import { ChevronDown } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 
 import { t } from '../../../i18n'
@@ -27,7 +27,7 @@ import type { useSessionConfig } from './useSessionConfig'
 
 export type ModelControl = Pick<
   ReturnType<typeof useSessionConfig>,
-  'data' | 'loading' | 'slow' | 'saving' | 'error' | 'queued' | 'open' | 'select'
+  'data' | 'loading' | 'slow' | 'saving' | 'error' | 'queued' | 'optimistic' | 'open' | 'select'
 > & { setOpen: (open: boolean) => void; refresh: () => void }
 
 function chipLabel(name: string, fast: string | undefined) {
@@ -52,10 +52,12 @@ export function ModelSelector({
   const chipRef = useRef<HTMLButtonElement>(null)
   const sliderRef = useRef<HTMLInputElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
+  // Show a choice the moment it is made: queued ones win over the one being saved.
+  const pending = [...(control.optimistic ? [control.optimistic] : []), ...(control.queued ?? [])]
   const options = data?.options.map((option) => {
-    const queued = control.queued?.find((selection) => selection.configId === option.id)
+    const chosen = pending.findLast((selection) => selection.configId === option.id)
 
-    return queued ? { ...option, currentValue: queued.value } : option
+    return chosen ? { ...option, currentValue: chosen.value } : option
   })
   const model = options?.find((option) => option.kind === 'model')
   const effort = options?.find((option) => option.kind === 'effort')
@@ -70,8 +72,9 @@ export function ModelSelector({
   const effortLevels = [
     ...new Set([level, ...effortStops(effort?.options ?? []).map((choice) => effortLabel(choice))]),
   ].filter(Boolean)
+  // A save in flight does not block another choice; it queues behind it.
   const blocked =
-    disabled || saving || (status !== 'ready' && status !== 'dormant' && status !== 'busy')
+    disabled || (status !== 'ready' && status !== 'dormant' && status !== 'busy')
   const hint = modelHint(status, Boolean(model), busy)
 
   const setOpen = control.setOpen
@@ -130,7 +133,7 @@ export function ModelSelector({
           : t('Getting model settings…')),
       error,
       error && model && t('Showing last synced settings.'),
-      control.queued ? t('Selected for the next reply.') : hint,
+      control.queued && !saving ? t('Selected for the next reply.') : hint,
       disabled &&
         !busy &&
         status === 'ready' &&
@@ -178,7 +181,6 @@ export function ModelSelector({
               'flex min-w-0 max-w-64 items-center gap-1 rounded-full px-2 text-[13px] text-main outline-none transition-colors hover:bg-state-hover focus-visible:bg-state-hover',
             )}
           >
-            {saving && <Loader2 className="h-3 w-3 shrink-0 animate-spin" />}
             <ModelChipLabel
               name={name}
               loading={loading && !slow && !error && !data}
@@ -213,8 +215,7 @@ export function ModelSelector({
                   fast={fast}
                   modelName={name}
                   resetValue={effortResetValue(effort.options)}
-                  blocked={blocked && !saving}
-                  saving={saving}
+                  blocked={blocked}
                   sliderRef={sliderRef}
                   onSelect={select}
                   onOpenModels={() => setView('models')}
