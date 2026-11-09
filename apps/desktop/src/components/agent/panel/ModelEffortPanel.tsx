@@ -66,7 +66,6 @@ export function ModelEffortPanel({
   modelName,
   resetValue,
   blocked,
-  saving,
   sliderRef,
   onSelect,
   onOpenModels,
@@ -77,8 +76,6 @@ export function ModelEffortPanel({
   resetValue?: string
   /** No changes at all, e.g. the agent is offline. */
   blocked: boolean
-  /** A change is being saved; the slider and reset are disabled until it ends. */
-  saving: boolean
   sliderRef?: React.Ref<HTMLInputElement>
   onSelect: (configId: string, value: string) => void
   onOpenModels?: () => void
@@ -88,17 +85,12 @@ export function ModelEffortPanel({
   const committed = stops.findIndex((stop) => stop.value === running)
   // A draft only holds until the runtime reports a different level.
   const [draft, setDraft] = useState<{ index: number; from: string }>()
-  const [wasSaving, setWasSaving] = useState(saving)
   const [commit] = useState(effortCommit)
 
   useEffect(() => () => commit.flush(), [commit])
 
-  // Drop a draft once the runtime reports any change, or once a save ends,
-  // so a failed change never lingers on the slider.
-  if (wasSaving !== saving) {
-    setWasSaving(saving)
-    if (!saving && draft) setDraft(undefined)
-  }
+  // Drop a draft once the shown level changes: the choice applied optimistically,
+  // or a failed save reverted it, so a failed change never lingers on the slider.
   if (draft && draft.from !== effort.currentValue) setDraft(undefined)
   const index = draft?.from === effort.currentValue ? draft.index : committed
   const current = index >= 0 ? stops[index] : undefined
@@ -131,7 +123,7 @@ export function ModelEffortPanel({
                   fastReason?.tooltip ?? (fastOn ? t('Turn off fast mode') : t('Turn on fast mode'))
                 }
                 pressed={fastOn}
-                disabled={blocked || saving}
+                disabled={blocked}
                 inert={Boolean(fastReason)}
                 onClick={() => onSelect(fast.id, fastOn ? 'off' : 'on')}
                 className={fastOn ? 'text-status-attention' : 'text-tertiary'}
@@ -145,7 +137,7 @@ export function ModelEffortPanel({
               <IconButton
                 label={ultrafastOn ? t('Turn off Ultrafast mode') : t('Turn on Ultrafast mode')}
                 pressed={ultrafastOn}
-                disabled={blocked || saving}
+                disabled={blocked}
                 onClick={() => onSelect(fast.id, ultrafastOn ? 'off' : 'ultrafast')}
                 className={ultrafastOn ? 'text-status-attention' : 'text-tertiary'}
               >
@@ -160,7 +152,7 @@ export function ModelEffortPanel({
         <Tooltip content={resetHint} triggerClassName="absolute right-1.5 top-1.5">
           <IconButton
             label={resetHint}
-            inert={blocked || saving || resetValue === effort.currentValue}
+            inert={blocked || resetValue === effort.currentValue}
             onClick={() => onSelect(effort.id, resetValue)}
             className="text-tertiary"
           >
@@ -193,8 +185,7 @@ export function ModelEffortPanel({
         max={Math.max(stops.length - 1, 1)}
         step={1}
         thumbAlignment="edge"
-        // A session ignores writes while one is saving, so hold the slider still.
-        disabled={blocked || saving || stops.length < 2}
+        disabled={blocked || stops.length < 2}
         onValueChange={(value) => setDraft({ index: value, from: effort.currentValue })}
         onValueCommitted={(value) => {
           const stop = stops[value]

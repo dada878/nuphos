@@ -180,6 +180,53 @@ test('lost write acknowledgement is never an optimistic model and triggers readb
   assert.equal(sync.getSnapshot().data?.options[0].currentValue, 'actual')
 })
 
+test('a choice shows at once as optimistic, and a failed write drops it', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const write = deferred<SessionConfigState>()
+  const sync = new SessionConfigSync({ read: async () => ready('actual'), write: () => write.promise })
+
+  t.after(sync.start())
+  await flush()
+  const selecting = sync.select({ configId: 'model', value: 'chosen' })
+
+  assert.deepEqual(sync.getSnapshot().optimistic, { configId: 'model', value: 'chosen' })
+  // The acknowledged data is never rewritten with the unconfirmed value.
+  assert.equal(sync.getSnapshot().data?.options[0].currentValue, 'actual')
+  write.reject(new Error('rejected'))
+  await selecting
+  await flush()
+  assert.equal(sync.getSnapshot().optimistic, undefined)
+  assert.match(sync.getSnapshot().error ?? '', /not confirmed/)
+})
+
+test('a choice made while another saves queues behind it instead of being dropped', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const first = deferred<SessionConfigState>()
+  const writes: string[] = []
+  const sync = new SessionConfigSync({
+    read: async () => ready(writes.at(-1) ?? 'old'),
+    write: (selection) => {
+      writes.push(`${selection.configId}:${selection.value}`)
+
+      return writes.length === 1 ? first.promise : Promise.resolve(ready('high'))
+    },
+  })
+
+  t.after(sync.start())
+  await flush()
+  const saving = sync.select({ configId: 'effort', value: 'medium' })
+
+  await sync.select({ configId: 'effort', value: 'high' })
+  assert.deepEqual(sync.getSnapshot().queued, [{ configId: 'effort', value: 'high' }])
+  first.resolve(ready('medium'))
+  await saving
+  await flush()
+  await flush()
+  assert.deepEqual(writes, ['effort:medium', 'effort:high'])
+  assert.equal(sync.getSnapshot().queued, undefined)
+  assert.equal(sync.getSnapshot().optimistic, undefined)
+})
+
 test('a dormant read after moving agents drops the previous agent’s options', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] })
   let response = ready('old-agent-model')
