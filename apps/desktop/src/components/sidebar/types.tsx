@@ -58,6 +58,8 @@ export type Item = {
   face?: ReactNode
   /** A Bot's chat (a channel with only the Bot in it): the Bot's session id. */
   botChannelOf?: string
+  /** A Task that is also a Bot: the Bot's chat, linked from the Task's row. */
+  botChat?: { botId: string; name: string; key?: string; open?: () => void }
   /** An agent the viewer does not own: no rename or unlink, which are the owner's. */
   readOnlyChat?: boolean
   /** Such an agent the viewer manages, so they may archive it for everyone. */
