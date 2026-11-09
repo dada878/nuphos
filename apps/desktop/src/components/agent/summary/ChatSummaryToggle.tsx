@@ -1,4 +1,3 @@
-import { PanelRightClose } from 'lucide-react'
 import { useEffect } from 'react'
 
 import { usePaneId } from '../../../app/workspace/WorkspacePaneContext'
@@ -10,11 +9,11 @@ import {
   useChatSummaryOpen,
 } from '../../../lib/chatSummaryPanel'
 import { isMac } from '../../../lib/platform'
+import { CountBadge } from '../../ui/count-badge'
 import { Kbd } from '../../ui/kbd'
+import { StatusDot } from '../../ui/status-dot'
 import { Tooltip } from '../../ui/tooltip'
 import { shellsFromRuntimeState } from '../panel/shells'
-import { CountBadge } from '../../ui/count-badge'
-import { StatusDot } from '../../ui/status-dot'
 
 export function SummaryIcon() {
   return (
@@ -106,12 +105,8 @@ export function ChatSummaryToggle({
         onClick={() => toggleChatSummary(paneId)}
         className="titlebar-no-drag relative ml-0.5 flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md text-secondary transition-colors hover:bg-state-hover hover:text-main aria-pressed:bg-state-selected aria-pressed:text-main motion-reduce:transition-none"
       >
-        {/* While open it reads as the panel's own close, not the pane's X beside it. */}
-        {open ? (
-          <PanelRightClose className="h-3.5 w-3.5" strokeWidth={1.8} aria-hidden="true" />
-        ) : (
-          <SummaryIcon />
-        )}
+        {/* One icon either way: the pressed background already says it is open. */}
+        <SummaryIcon />
         {pendingCount > 0 && (
           <CountBadge
             size="sm"

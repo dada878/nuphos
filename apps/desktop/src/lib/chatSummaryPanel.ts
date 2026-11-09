@@ -48,8 +48,31 @@ function notify() {
   for (const listener of listeners) listener()
 }
 
+// The dock and the panel share the right edge, so an open dock takes it: each
+// pane keeps its chat's choice for when the dock closes, and meanwhile opening
+// the panel only peeks at it, floating over the transcript until dismissed.
+const docked = new Set<string>()
+const peeking = new Set<string>()
+
+/** Tells the store whether the dock beside this pane is open. */
+export function setChatSummaryDocked(paneId: string, next: boolean): void {
+  if (next === docked.has(paneId)) return
+  if (next) docked.add(paneId)
+  else docked.delete(paneId)
+  peeking.delete(paneId)
+  notify()
+}
+
 /** Opens or closes the panel for the chat this pane shows. */
 export function setChatSummaryOpen(paneId: string, next: boolean): void {
+  if (docked.has(paneId)) {
+    if (next) peeking.add(paneId)
+    else peeking.delete(paneId)
+    notify()
+
+    return
+  }
+
   const key = keyOf(paneId)
 
   // Re-adding moves the chat to the end, so the limit forgets the oldest first.
@@ -65,12 +88,12 @@ export function setChatSummaryOpen(paneId: string, next: boolean): void {
 }
 
 export function toggleChatSummary(paneId: string): void {
-  setChatSummaryOpen(paneId, !openKeys.has(keyOf(paneId)))
+  setChatSummaryOpen(paneId, !isChatSummaryOpen(paneId))
 }
 
-/** Whether the panel is open for the chat this pane shows, for code outside React. */
+/** Whether the panel is showing for the chat this pane shows, for code outside React. */
 export function isChatSummaryOpen(paneId: string): boolean {
-  return openKeys.has(keyOf(paneId))
+  return docked.has(paneId) ? peeking.has(paneId) : openKeys.has(keyOf(paneId))
 }
 
 /** Records which chat a pane shows; a pending badge open for that chat lands here. */
@@ -101,6 +124,8 @@ export function useRegisterPaneSession(paneId: string, sessionId: string | null)
   useEffect(
     () => () => {
       openKeys.delete(`pane:${paneId}`)
+      docked.delete(paneId)
+      peeking.delete(paneId)
     },
     [paneId],
   )
@@ -221,7 +246,16 @@ function subscribe(listener: () => void) {
 export function useChatSummaryOpen(paneId: string): boolean {
   return useSyncExternalStore(
     subscribe,
-    () => openKeys.has(keyOf(paneId)),
+    () => isChatSummaryOpen(paneId),
+    () => false,
+  )
+}
+
+/** Whether the dock has the right edge, so the panel can only float as a peek. */
+export function useChatSummaryDocked(paneId: string): boolean {
+  return useSyncExternalStore(
+    subscribe,
+    () => docked.has(paneId),
     () => false,
   )
 }
@@ -254,29 +288,4 @@ export function useSummaryRevealRequest(): number {
   )
 }
 
-// A dialog or menu has the keyboard (⌘K palette, settings): the panel behind it stays as it is.
-const OVERLAY = '[role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"]'
-
-/**
- * ⌘I on macOS, Ctrl+I elsewhere; the physical key, so a layout or ⌥ cannot
- * change it. Not while focus is inside a dialog or menu.
- */
-export function isChatSummaryShortcut(
-  event: Pick<
-    KeyboardEvent,
-    'metaKey' | 'ctrlKey' | 'altKey' | 'shiftKey' | 'code' | 'isComposing'
-  > & { target: EventTarget | null },
-  mac: boolean,
-): boolean {
-  const target = event.target as { closest?: (selector: string) => unknown } | null
-
-  if (target?.closest?.(OVERLAY)) return false
-
-  return (
-    (mac ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey) &&
-    !event.altKey &&
-    !event.shiftKey &&
-    event.code === 'KeyI' &&
-    !event.isComposing
-  )
-}
+export { isChatSummaryShortcut } from './chatSummaryShortcut.ts'
