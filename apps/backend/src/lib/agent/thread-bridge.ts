@@ -22,7 +22,7 @@ import {
 import { isChannel } from './db/channels'
 
 import type { CredentialRef } from './thread-credentials'
-import type { ThreadModelPick } from './thread-runtime'
+import type { ThreadChange, ThreadModelPick, ThreadRuntimePick } from './thread-runtime'
 import type { AgentConversation } from './db'
 
 export type ThreadActor = { userId: string; teamId: string; sessionId: string; locale: string }
@@ -84,12 +84,15 @@ export async function createAgentThread(
   actor: ThreadActor,
   prompt: string,
   title: string,
-  pick: ThreadModelPick & { credentials?: CredentialRef[] } = {},
+  pick: ThreadModelPick & ThreadRuntimePick & { credentials?: CredentialRef[] } = {},
 ) {
   const source = await authorizeThreadActor(actor)
   const { threadCredentialAccess } = await import('./thread-credentials')
-  // Checked before anything is written, so a refused grant leaves no conversation.
+  // Checked before anything is written, so a refused grant or agent leaves no conversation.
   const credentialAccess = await threadCredentialAccess(actor, source, pick.credentials)
+  const { moveThread, resolveThreadRuntime, setThreadModel, threadPlacement, threadWorkspace } =
+    await import('./thread-runtime')
+  const runtime = await resolveThreadRuntime(actor, source.runtimeId, pick)
   const threadId = randomUUID()
   const messageId = randomUUID()
 
@@ -107,7 +110,7 @@ export async function createAgentThread(
     runtimeLabel: source.runtimeLabel,
     parentSessionId: actor.sessionId,
     parentGrants: source,
-    workspace: source.workspace,
+    workspace: threadWorkspace(source.workspace, runtime),
   })
   // A thread runs in its parent's permission mode, as a hand-opened chat in the user's pick.
   await initializeSessionBypass(
@@ -115,9 +118,10 @@ export async function createAgentThread(
     actor.userId,
     await getSessionBypass(actor.sessionId, actor.userId),
   )
-  const { setThreadModel } = await import('./thread-runtime')
 
   try {
+    // Moved by the picker's own checks, before the model its catalog decides.
+    if (runtime) await moveThread(threadId, runtime.id, actor.userId)
     await setThreadModel(threadId, actor.userId, pick)
   } catch (error) {
     // Nothing ran yet; a refused pick hides the unused conversation.
@@ -131,7 +135,11 @@ export async function createAgentThread(
     prompt,
   })
 
-  return { ...receipt(actor, threadId, messageId, status), sourceThreadId: actor.sessionId }
+  return {
+    ...receipt(actor, threadId, messageId, status),
+    sourceThreadId: actor.sessionId,
+    ...(await threadPlacement(threadId)),
+  }
 }
 
 export async function sendAgentThreadMessage(actor: ThreadActor, threadId: string, prompt: string) {
@@ -152,17 +160,8 @@ export async function listThreadRuntimes(actor: ThreadActor) {
  * The parent's own controls for a thread nested under it: its permission mode and
  * credentials, never more access than the parent has, and the agent it runs on.
  */
-export async function updateThread(
-  actor: ThreadActor,
-  threadId: string,
-  change: {
-    fullAccess?: boolean
-    runtimeId?: string
-    grant?: CredentialRef[]
-    revoke?: CredentialRef[]
-  } & ThreadModelPick,
-) {
-  const { target } = await authorizeThreadDelivery({ ...actor, targetSessionId: threadId })
+export async function updateThread(actor: ThreadActor, threadId: string, change: ThreadChange) {
+  const { source, target } = await authorizeThreadDelivery({ ...actor, targetSessionId: threadId })
 
   // A thread is this conversation's to manage while nested under it, whether
   // create_thread opened it or set_thread_parent adopted one of the owner's own.
@@ -172,16 +171,15 @@ export async function updateThread(
   if (change.fullAccess && !(await getSessionBypass(actor.sessionId, actor.userId))) {
     throw new Error('Only a conversation in Full Access can give a thread Full Access.')
   }
-  const { assertThreadRuntime, setThreadModel } = await import('./thread-runtime')
-
-  await assertThreadRuntime(actor, change.runtimeId)
+  const { moveThread, resolveThreadRuntime, setThreadModel, threadPlacement } =
+    await import('./thread-runtime')
+  const destination = await resolveThreadRuntime(actor, source.runtimeId, change, target.runtimeId)
   const { changeThreadCredentials } = await import('./thread-credentials')
   const credentials = await changeThreadCredentials(actor, threadId, change)
-  const { moveConversationRuntime } =
-    await import('@/lib/claude-code-preview/conversation-runtime-move')
-  const runtime = change.runtimeId
-    ? await moveConversationRuntime(target, change.runtimeId, 'history', actor.userId)
-    : undefined
+
+  if (destination) await moveThread(threadId, destination.id, actor.userId)
+  // Read back, so the answer is where the thread now runs, not what was asked.
+  const runtime = change.runtimeId || change.provider ? await threadPlacement(threadId) : undefined
   // After a move, which drops the old agent's model choices.
   const model = await setThreadModel(threadId, actor.userId, change)
 

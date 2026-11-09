@@ -37,6 +37,19 @@ const modelPick = {
   effort: z.string().trim().min(1).max(100).optional().describe('Reasoning effort, e.g. high.'),
 }
 // (provider, id) pairs as the parent's own list_credentials shows them.
+// The agent a thread runs on: a runtimeId from list_agent_runtimes, or an agent type.
+const runtimePick = {
+  runtimeId: z.string().trim().min(1).max(500).optional().describe('From list_agent_runtimes.'),
+  provider: z
+    .string()
+    .trim()
+    .min(1)
+    .max(100)
+    .optional()
+    .describe(
+      'Agent type, e.g. claude-code or codex: its agent on your computer, or the only listed one.',
+    ),
+}
 const credentialRefs = z
   .array(z.object({ provider: z.string().min(1), id: z.string().min(1) }).strict())
   .max(50)
@@ -69,7 +82,7 @@ const update = z
     label: common.label,
     threadId: z.string().uuid(),
     fullAccess: z.boolean().optional().describe('true for Full Access, false for Auto Mode.'),
-    runtimeId: z.string().trim().min(1).optional().describe('From list_agent_runtimes.'),
+    ...runtimePick,
     grant: credentialRefs.describe(
       '(provider, id) pairs from your own list_credentials to add to the thread.',
     ),
@@ -105,11 +118,15 @@ export function threadToolModule(
         name: 'create_thread',
         description:
           'Start a Nuphos sub-agent: a separate Nuphos conversation. Use it only when asked for a sub-agent or to delegate/background work. ' +
-          'Inherits your current runtime and permission mode, not your transcript. ' +
+          'Inherits your current agent and permission mode, not your transcript. ' +
+          'runtimeId (from list_agent_runtimes) or provider (e.g. claude-code) runs it on another ' +
+          'agent instead: a team agent, your Box, or another agent on the computer you run on; ' +
+          'never another computer, and only one signed in and online now. ' +
           'Pass credentials with only the (provider, id) pairs from your list_credentials that the ' +
           'task needs; the thread gets exactly those, and anything you have not selected is ' +
           'refused. Without credentials it gets your whole selection. ' +
-          "model and effort set its model picker before its first turn; its agent's defaults otherwise. " +
+          "model and effort set its model picker before its first turn, from that agent's own " +
+          'catalog; its defaults otherwise. The result reads back the agentRuntime it runs on. ' +
           'The current chat stays available. Specify a completion condition and ask the worker to use ' +
           'send_message_to_thread to report back. Returns a Nuphos threadId (not a Codex internal ID). ' +
           'Only available for conversations owned by the current actor.',
@@ -143,9 +160,10 @@ export function threadToolModule(
       {
         name: 'list_agent_runtimes',
         description:
-          "List the team's agents (runtimes) and your Boxes' agents that your threads can run on, with each one's readiness and " +
-          'usage quota. Use it to pick a runtimeId for update_thread, for example when a thread ' +
-          "has hit its agent's usage limit.",
+          "List the team's agents (runtimes), your Boxes' agents, and the other agents on the computer " +
+          'this conversation runs on (sameComputer), that your threads can run on, with each ' +
+          "one's provider, readiness (notReady says why) and usage quota. Use it to pick a runtimeId " +
+          "for create_thread or update_thread, for example another agent type or when a thread has hit its agent's usage limit.",
         inputSchema: toolInputJsonSchema(list),
       },
       {
@@ -156,8 +174,8 @@ export function threadToolModule(
           'between Full Access (true) and Auto Mode (false); Full Access is allowed only while ' +
           'this conversation itself has Full Access, Auto Mode always. runtimeId moves it, with ' +
           'its conversation history, to another agent from list_agent_runtimes ' +
-          "(never to someone's computer); its next turn " +
-          'runs there. grant adds credentials or devices (provider "device") that this ' +
+          '(never to another computer); provider picks that agent type the same way create_thread ' +
+          'does. Its next turn runs there. grant adds credentials or devices (provider "device") that this ' +
           "conversation has selected, as its list_credentials shows them, to the thread's " +
           'selection; grant only what its task needs. revoke removes ones the thread has, ' +
           "from its next credential request on. model and effort set the thread's model picker for its " +
@@ -218,12 +236,13 @@ export function threadToolModule(
         if (
           change.fullAccess === undefined &&
           !change.runtimeId &&
+          !change.provider &&
           !change.grant?.length &&
           !change.revoke?.length &&
           !change.model &&
           !change.effort
         )
-          return toolError('Set fullAccess, runtimeId, grant, revoke, model or effort.')
+          return toolError('Set fullAccess, runtimeId, provider, grant, revoke, model or effort.')
 
         return answer(updateThread(ctx, threadId, change))
       },

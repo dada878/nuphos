@@ -15,11 +15,17 @@ MCP surface for either agent runtime, without patching another upstream bundle.
    report back. The tool creates a visible conversation with the same owner,
    team, runtime, credential selection, and permission mode (Full Access or Auto
    Mode), then starts its first turn the same way a message typed into a new chat
-   does. The source can later change any thread nested under it, whether created
+   does. `runtimeId` or `provider` (for example `claude-code` from a Codex
+   parent) starts it on another agent instead: a team agent, one of the owner's
+   Boxes, or another agent on the owner's computer the source itself runs on,
+   never another computer or a teammate's shared one. That agent must be online
+   and signed in, and `model` is checked against its own catalog. The source can
+   later change any thread nested under it, whether created
    there or adopted with `set_thread_parent`, with `update_thread`: switch it
    between the two modes (Full Access requires the source itself to be in Full
    Access) or move it, with its history, to another agent picked from
-   `list_agent_runtimes`, for example when it hits that agent's usage limit.
+   `list_agent_runtimes` (the same set), for example when it hits that agent's
+   usage limit.
    `grant` adds credentials or local devices to the thread's selection, only
    ones the source itself has selected now, as its own `list_credentials`
    shows them. It never removes any; unticking stays with the owner.

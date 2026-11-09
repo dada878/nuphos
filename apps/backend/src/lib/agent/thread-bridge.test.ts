@@ -25,6 +25,8 @@ import {
 import { installTurnRunner, resetTurnRunner } from './turn-runner'
 
 import type { AgentConversation, AgentCredentialAccess } from './db'
+import type { RuntimeInstance } from '@/lib/claude-code-preview/runtime-instances'
+
 import type { TurnRunner } from './turn-runner'
 
 const access = {
@@ -60,6 +62,9 @@ beforeEach(() => {
   bypass.clear()
   events.length = 0
   moves.length = 0
+  placements.clear()
+  moveError = undefined
+  macClaude = { online: true, signedIn: true }
   writes.length = 0
   removals.length = 0
   selections.clear()
@@ -148,55 +153,106 @@ useDb({
     }),
   }),
 })
+// Where a move put each conversation, as the store's $set would, read back by
+// getConversationBySessionId. A move that should fail sets moveError.
+const placements = new Map<
+  string,
+  Pick<AgentConversation, 'runtimeId' | 'agentRuntime' | 'runtimeLabel'>
+>()
+let moveError: Error | undefined
+
 useConversationRuntimeMove({
   moveConversationRuntime: async (conversation, runtimeId, mode, userId) => {
+    if (moveError) throw moveError
     moves.push({ sessionId: conversation.sessionId, runtimeId, mode, userId })
+    const instance = (await catalog('team', 'owner')).find(({ id }) => id === runtimeId)!
 
-    return { runtimeId, runtimeLabel: 'Other', agentRuntime: 'codex', mode }
+    placements.set(conversation.sessionId, {
+      runtimeId,
+      agentRuntime: instance.provider,
+      runtimeLabel: instance.label,
+    })
+
+    return { runtimeId, runtimeLabel: instance.label, agentRuntime: instance.provider, mode }
   },
 })
+// The owner's own computer `mac-1`, which the parent runs on in the local tests,
+// another of theirs `mac-2`, and a teammate's `mac-3` shared with them.
+const MAC_CODEX = 'local_owner_mac-1_codex'
+const MAC_CLAUDE = 'local_owner_mac-1'
+const OTHER_MAC_CLAUDE = 'local_owner_mac-2'
+const SHARED_MAC_CLAUDE = 'local_mate_mac-3'
+let macClaude: { online: boolean; signedIn: boolean | null } = { online: true, signedIn: true }
+const onComputer = (
+  id: string,
+  provider: 'codex' | 'claude-code',
+  deviceId: string,
+  extra: Record<string, unknown> = {},
+) => ({
+  id,
+  provider,
+  label: `${provider} in ${deviceId}`,
+  status: 'active' as const,
+  kind: 'local' as const,
+  createdAt: '',
+  local: { ownerUserId: 'owner', deviceId, online: true, signedIn: true, ...extra } as never,
+})
+const catalog = async (_teamId: string, userId?: string): Promise<RuntimeInstance[]> => [
+  {
+    id: 'runtime-2',
+    provider: 'codex',
+    label: 'Other',
+    status: 'active',
+    kind: 'managed',
+    createdAt: '',
+  },
+  ...(userId
+    ? [
+        {
+          id: 'local-1',
+          provider: 'codex' as const,
+          label: 'Mac',
+          status: 'active' as const,
+          kind: 'local' as const,
+          createdAt: '',
+        },
+        {
+          id: 'box-1',
+          provider: 'claude-code' as const,
+          label: 'Claude Code in Box',
+          status: 'active' as const,
+          kind: 'local' as const,
+          createdAt: '',
+          local: { box: { provider: 'instabox' } } as never,
+        },
+        onComputer(MAC_CODEX, 'codex', 'mac-1'),
+        onComputer(MAC_CLAUDE, 'claude-code', 'mac-1', macClaude),
+        onComputer(OTHER_MAC_CLAUDE, 'claude-code', 'mac-2'),
+        onComputer(SHARED_MAC_CLAUDE, 'claude-code', 'mac-3', {
+          ownerUserId: 'mate',
+          shared: { level: 'full' },
+        }),
+      ]
+    : []),
+]
+
 useRuntimeCatalog({
   withRuntimeReadiness: async (_teamId, instances) => instances,
   listRuntimeQuotas: async (_teamId, instances) => instances.map(() => ({}) as never),
   // Without a user only the team's agents are listed; a local one would need the owner.
-  listRuntimeInstances: async (_teamId, userId) => [
-    {
-      id: 'runtime-2',
-      provider: 'codex',
-      label: 'Other',
-      status: 'active',
-      kind: 'managed',
-      createdAt: '',
-    },
-    ...(userId
-      ? [
-          {
-            id: 'local-1',
-            provider: 'codex' as const,
-            label: 'Mac',
-            status: 'active' as const,
-            kind: 'local' as const,
-            createdAt: '',
-          },
-          {
-            id: 'box-1',
-            provider: 'claude-code' as const,
-            label: 'Claude Code in Box',
-            status: 'active' as const,
-            kind: 'local' as const,
-            createdAt: '',
-            local: { box: { provider: 'instabox' } } as never,
-          },
-        ]
-      : []),
-  ],
+  listRuntimeInstances: catalog,
 })
 // The model picker: what each conversation was set to, and the runtime's catalog.
 const picks: { sessionId: string; configId: string; value: string }[] = []
-const offered = { model: ['claude-fable-5-1', 'default'], effort: ['high', 'low'] }
+// Each agent type's catalog: a model is only valid for the agent the thread runs on.
+const catalogs = {
+  codex: { model: ['gpt-6.1-sol', 'default'], effort: ['high', 'low'] },
+  'claude-code': { model: ['claude-fable-5-1', 'default'], effort: ['high', 'low'] },
+}
 
 useSessionConfig({
   conversationSessionConfig: async (conversation, selection) => {
+    const offered = catalogs[(conversation.agentRuntime ?? 'codex') as 'codex']
     const options = Object.entries(offered).map(([kind, values]) => ({
       id: kind,
       name: kind,
@@ -235,8 +291,15 @@ useAgentDb({
         : shells.some((shell) => shell.sessionId === id)
           ? {
               ...source,
+              ...(({ agentRuntime, runtimeId, runtimeLabel, workspace }) => ({
+                agentRuntime,
+                runtimeId,
+                runtimeLabel,
+                workspace,
+              }))(shells.find((shell) => shell.sessionId === id)!),
               sessionId: id,
               parentSessionId: shells.find((shell) => shell.sessionId === id)?.parentSessionId,
+              ...placements.get(id),
             }
           : null,
   upsertConversationShell: async (data) => {
@@ -683,7 +746,7 @@ describe('conversation-scoped thread tools', () => {
     expect(writes).toHaveLength(0)
   })
 
-  test("a thread never moves onto the owner's computer", async () => {
+  test("a thread on a team agent never moves onto the owner's computer", async () => {
     await setSessionBypass('source', 'owner', true)
     const { threadId } = await createAgentThread(actor, 'Work', 'Task')
 
@@ -720,12 +783,172 @@ describe('conversation-scoped thread tools', () => {
     expect(moves.map((move) => move.runtimeId)).toEqual(['box-1'])
   })
 
-  test("sets a thread's model, then its effort, through the model picker", async () => {
-    const { threadId } = await createAgentThread(actor, 'Work', 'Task', {
-      model: 'claude-fable-5-1',
+  describe('another agent on the computer the parent runs on', () => {
+    beforeEach(() => {
+      source = { ...source, runtimeId: MAC_CODEX, agentRuntime: 'codex' }
     })
 
-    expect(picks).toEqual([{ sessionId: threadId, configId: 'model', value: 'claude-fable-5-1' }])
+    test("lists the parent computer's other agents, never another computer's", async () => {
+      const { runtimes } = await listThreadRuntimes(actor)
+
+      expect(runtimes.map((runtime) => runtime.runtimeId)).toEqual([
+        'runtime-2',
+        'box-1',
+        MAC_CODEX,
+        MAC_CLAUDE,
+      ])
+      expect(runtimes.find((runtime) => runtime.runtimeId === MAC_CLAUDE)).toMatchObject({
+        provider: 'claude-code',
+        sameComputer: true,
+        ready: true,
+        current: false,
+      })
+      expect(runtimes.find((runtime) => runtime.runtimeId === MAC_CODEX)?.current).toBe(true)
+    })
+
+    test('a Codex parent starts a Claude Code thread there, with its model, as the same owner', async () => {
+      const result = await createAgentThread(actor, 'Review', 'Reviewer', {
+        provider: 'claude-code',
+        model: 'claude-fable-5-1',
+      })
+
+      // Placed through the picker's move, then the model checked by that agent's catalog.
+      expect(moves).toEqual([
+        { sessionId: result.threadId, runtimeId: MAC_CLAUDE, mode: 'history', userId: 'owner' },
+      ])
+      expect(picks).toEqual([
+        { sessionId: result.threadId, configId: 'model', value: 'claude-fable-5-1' },
+      ])
+      // Read back from the stored thread, not echoed from the request.
+      expect(result).toMatchObject({ agentRuntime: 'claude-code', runtimeId: MAC_CLAUDE })
+      expect(shells[0]).toMatchObject({
+        userId: 'owner',
+        teamId: 'team',
+        credentialAccess: access,
+        parentSessionId: 'source',
+      })
+      expect(claims[0]).toMatchObject({ userId: 'owner', sessionId: result.threadId })
+      expect(archives).toHaveLength(0)
+    })
+
+    test('a runtimeId from the list works the same way', async () => {
+      const result = await createAgentThread(actor, 'Review', 'Reviewer', {
+        runtimeId: MAC_CLAUDE,
+      })
+
+      expect(result.agentRuntime).toBe('claude-code')
+      expect(moves.map((move) => move.runtimeId)).toEqual([MAC_CLAUDE])
+    })
+
+    test("the parent's own agent type stays on the parent's agent", async () => {
+      const result = await createAgentThread(actor, 'Work', 'Task', { provider: 'codex' })
+
+      expect(moves).toHaveLength(0)
+      expect(result).toMatchObject({ agentRuntime: 'codex', runtimeId: MAC_CODEX })
+    })
+
+    test('the project folder follows to the other agent on its computer', async () => {
+      source = {
+        ...source,
+        workspace: { kind: 'folder', path: '/project', runtimeId: MAC_CODEX },
+      }
+      await createAgentThread(actor, 'Work', 'Task', { provider: 'claude-code' })
+
+      expect(shells[0]?.workspace).toEqual({
+        kind: 'folder',
+        path: '/project',
+        runtimeId: MAC_CLAUDE,
+      })
+    })
+
+    test("a model of another agent type is refused on the parent's agent, with the hint", async () => {
+      const refusal = createAgentThread(actor, 'Work', 'Task', { model: 'claude-fable-5-1' })
+
+      await expect(refusal).rejects.toThrow('(codex). Choose one of: gpt-6.1-sol, default.')
+      await expect(
+        createAgentThread(actor, 'Work', 'Task', { model: 'claude-fable-5-1' }),
+      ).rejects.toThrow('pass provider or runtimeId')
+      expect(claims).toHaveLength(0)
+    })
+
+    test.each([
+      ['another of their computers', OTHER_MAC_CLAUDE],
+      ["a teammate's shared computer", SHARED_MAC_CLAUDE],
+      ['an unknown agent', 'local_owner_mac-1_opencode'],
+    ])('refuses %s before writing anything', async (_case, runtimeId) => {
+      await expect(createAgentThread(actor, 'Work', 'Task', { runtimeId })).rejects.toThrow(
+        'never on another computer',
+      )
+      expect(shells).toHaveLength(0)
+      expect(moves).toHaveLength(0)
+    })
+
+    test('refuses an agent type no listed agent has, naming the ones there are', async () => {
+      await expect(createAgentThread(actor, 'Work', 'Task', { provider: 'grok' })).rejects.toThrow(
+        "No grok agent is available to this conversation's threads (available: codex, claude-code)",
+      )
+      expect(shells).toHaveLength(0)
+    })
+
+    test('refuses a runtimeId of another agent type than the provider asked', async () => {
+      await expect(
+        createAgentThread(actor, 'Work', 'Task', { runtimeId: MAC_CLAUDE, provider: 'codex' }),
+      ).rejects.toThrow('is a claude-code agent, not codex')
+      expect(shells).toHaveLength(0)
+    })
+
+    test.each([
+      ['signed out', { online: true, signedIn: false }, 'signed out'],
+      ['offline', { online: false, signedIn: true }, 'does not report'],
+    ])('refuses an agent that is %s, and lists why', async (_case, state, reason) => {
+      macClaude = state
+      const listed = (await listThreadRuntimes(actor)).runtimes.find(
+        (runtime) => runtime.runtimeId === MAC_CLAUDE,
+      )
+
+      expect(listed).toMatchObject({ ready: false })
+      expect(listed?.notReady).toContain(reason)
+      await expect(
+        createAgentThread(actor, 'Work', 'Task', { provider: 'claude-code' }),
+      ).rejects.toThrow(reason)
+      expect(shells).toHaveLength(0)
+    })
+
+    test('a move the picker refuses hides the unused thread and starts nothing', async () => {
+      moveError = new Error('The destination agent is not ready yet.')
+
+      await expect(
+        createAgentThread(actor, 'Work', 'Task', { provider: 'claude-code' }),
+      ).rejects.toThrow('not ready yet')
+      expect(archives).toEqual([[shells[0]?.sessionId, true]])
+      expect(claims).toHaveLength(0)
+    })
+
+    test('update_thread moves a thread to that agent type and reads back where it runs', async () => {
+      const { threadId } = await createAgentThread(actor, 'Work', 'Task')
+      const result = await updateThread(actor, threadId, {
+        provider: 'claude-code',
+        model: 'claude-fable-5-1',
+      })
+
+      expect(moves.map((move) => move.runtimeId)).toEqual([MAC_CLAUDE])
+      expect(result.runtime).toMatchObject({ agentRuntime: 'claude-code', runtimeId: MAC_CLAUDE })
+      expect(result.model).toMatchObject({ model: 'claude-fable-5-1' })
+      // Already there: nothing moves again.
+      await updateThread(actor, threadId, { provider: 'claude-code' })
+      expect(moves).toHaveLength(1)
+      await expect(updateThread(actor, threadId, { runtimeId: OTHER_MAC_CLAUDE })).rejects.toThrow(
+        'never on another computer',
+      )
+    })
+  })
+
+  test("sets a thread's model, then its effort, through the model picker", async () => {
+    const { threadId } = await createAgentThread(actor, 'Work', 'Task', {
+      model: 'gpt-6.1-sol',
+    })
+
+    expect(picks).toEqual([{ sessionId: threadId, configId: 'model', value: 'gpt-6.1-sol' }])
     const result = await updateThread(actor, threadId, { effort: 'high', model: 'default' })
 
     expect(picks.slice(1).map((pick) => pick.configId)).toEqual(['model', 'effort'])
@@ -734,7 +957,7 @@ describe('conversation-scoped thread tools', () => {
 
   test('refuses a model the agent does not offer, naming the choices', async () => {
     await expect(createAgentThread(actor, 'Work', 'Task', { model: 'gpt-1' })).rejects.toThrow(
-      'claude-fable-5-1, default',
+      'gpt-6.1-sol, default',
     )
     // Nothing ran; the unused conversation is archived.
     expect(claims).toHaveLength(0)
