@@ -1,0 +1,31 @@
+{
+  "head": "7c682d7c74e6b048217b4ada96bbc6c4a6449882",
+  "before": {
+    "scrollWidth": 247,
+    "clientWidth": 247,
+    "scrollHeight": 508,
+    "clientHeight": 320,
+    "scrollTop": 0
+  },
+  "scrolled": {
+    "scrollWidth": 247,
+    "clientWidth": 247,
+    "scrollHeight": 508,
+    "clientHeight": 320,
+    "scrollTop": 188
+  },
+  "expanded": {
+    "scrollWidth": 247,
+    "clientWidth": 247,
+    "scrollHeight": 508,
+    "clientHeight": 508,
+    "scrollTop": 0
+  },
+  "resetMetrics": {
+    "clientHeight": 320,
+    "scrollHeight": 508,
+    "scrollWidth": 247,
+    "clientWidth": 247,
+    "scrollTop": 0
+  }
+}
