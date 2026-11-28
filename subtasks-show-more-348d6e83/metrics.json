@@ -1,0 +1,52 @@
+{
+  "head": "348d6e83fb52b045b66698dc065a0f466b40939b",
+  "collapsed": {
+    "rows": 10,
+    "listOverflowY": "visible",
+    "listScrollHeight": 298,
+    "listClientHeight": 298,
+    "button": "Show 7 more",
+    "ariaExpanded": "false",
+    "iconLeft": 1117,
+    "buttonTextLeft": 1117,
+    "sidebarScrollTop": null,
+    "sidebarScrollable": false
+  },
+  "expanded": {
+    "rows": 17,
+    "listOverflowY": "visible",
+    "listScrollHeight": 508,
+    "listClientHeight": 508,
+    "button": "Show less",
+    "ariaExpanded": "true",
+    "iconLeft": 1117,
+    "buttonTextLeft": 1117,
+    "sidebarScrollTop": 123,
+    "sidebarScrollable": true
+  },
+  "collapsedAgain": {
+    "rows": 10,
+    "listOverflowY": "visible",
+    "listScrollHeight": 298,
+    "listClientHeight": 298,
+    "button": "Show 7 more",
+    "ariaExpanded": "false",
+    "iconLeft": 1117,
+    "buttonTextLeft": 1117,
+    "sidebarScrollTop": null,
+    "sidebarScrollable": false
+  },
+  "activeRows": 1,
+  "reset": {
+    "rows": 10,
+    "listOverflowY": "visible",
+    "listScrollHeight": 298,
+    "listClientHeight": 298,
+    "button": "Show 7 more",
+    "ariaExpanded": "false",
+    "iconLeft": 1117,
+    "buttonTextLeft": 1117,
+    "sidebarScrollTop": null,
+    "sidebarScrollable": false
+  }
+}
